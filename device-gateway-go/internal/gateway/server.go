@@ -31,6 +31,7 @@ type Server struct {
 	heartbeatTimeout time.Duration
 	hubs             map[string]*hub
 	hubsMu           sync.Mutex
+	metrics          *metricStore
 }
 
 func NewServer(cfg Config) *Server {
@@ -40,6 +41,7 @@ func NewServer(cfg Config) *Server {
 		cfg:              cfg,
 		heartbeatTimeout: defaultHeartbeatTimeout,
 		hubs:             map[string]*hub{},
+		metrics:          newMetricStore(),
 	}
 }
 
@@ -119,6 +121,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		},
 		authTimeout: s.authTimeout,
 		hub:         h,
+		metrics:     s.metrics,
 		ws:          ws,
 	}
 	h.register(conn)
@@ -147,6 +150,12 @@ func (s *Server) handleDeviceAPI(w http.ResponseWriter, r *http.Request, body de
 	case "/api/device/system-info":
 		if r.Method == http.MethodPost {
 			s.handleSystemInfo(w, r, body)
+			return
+		}
+		writeText(w, http.StatusNotFound, "404 page not found")
+	case "/api/device/metrics":
+		if r.Method == http.MethodPost {
+			s.handleMetrics(w, r, body)
 			return
 		}
 		writeText(w, http.StatusNotFound, "404 page not found")

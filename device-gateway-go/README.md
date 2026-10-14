@@ -22,6 +22,7 @@ The original Cloudflare Worker Device Gateway remains the reference implementati
 - `POST /api/device/message-api`
 - `POST /api/device/tool-call`
 - `POST /api/device/system-info`
+- `POST /api/device/metrics`
 - `POST /api/device/rpc`
 - `POST /api/device/agent/run`
 
@@ -29,7 +30,17 @@ All `/api/device/*` endpoints require `Authorization: Bearer <SERVICE_TOKEN>` an
 
 Tool calls keep one request ID across reconnects, bind to the initially selected device and connection, and allow at most three retransmissions after the first attempt. A call waits for its execution timeout (default 30 seconds, minimum 5 seconds) plus a 45-second recovery window. If no delivery succeeds it returns `503 DEVICE_OFFLINE`; a delivered call without a result returns `504 TIMEOUT`.
 
-Device tunnels (the LobeHub alpha experiment) and device health metrics are not implemented. Tool-call recovery can exceed the generic HTTP `WRITE_TIMEOUT`; reverse proxies must allow the execution timeout plus the 45-second recovery window.
+Device tunnels (the LobeHub alpha experiment) are not implemented. Tool-call recovery can exceed the generic HTTP `WRITE_TIMEOUT`; reverse proxies must allow the execution timeout plus the 45-second recovery window.
+
+## Device Health Metrics
+
+Authenticated devices send `device_metrics` messages with `batchId` and a `samples` array. The gateway replies with `{ type: "device_metrics_ack", batchId, accepted }`. Each sample contains `connected`, `cpuCount`, `cpuPercent`, `load1`, `load5`, `load15`, `memoryTotalBytes`, `memoryUsedBytes`, and `observedAt` (epoch milliseconds). CPU percentage and load readings may be `null`. Samples are stored under the authenticated socket's user and device IDs; IDs supplied in the message cannot redirect them.
+
+`POST /api/device/metrics` accepts `{ userId, deviceId, since? }` with service-token authentication and returns `{ samples: [...] }` in ascending sampling-time order. `deviceId` is required. A numeric `since` is inclusive; absent or non-numeric values default to zero. Results are restricted to the most recent 48 hours, including when the device is offline. Missing history returns `{ samples: [] }`.
+
+The gateway processes the first 500 entries in each batch, validates sample fields, rejects samples older than 48 hours or more than 10 minutes ahead of its clock, and deduplicates by `observedAt`. A later sample at the same timestamp replaces the previous one; duplicates still count as accepted in the ack. Normal devices sample every minute and upload every five minutes. LobeHub's device page normally queries 12 hours of history; aggregation remains on the LobeHub Server.
+
+History is held only in memory, with fixed limits of 3,000 samples per device, 300,000 samples across the gateway, and 1,000 device histories across all users. A device retains its newest samples; global limits evict the entire device history with the oldest latest sample. Expired samples are removed during reads/writes and by a one-minute cleanup timer, even for disconnected devices. Capacity limits may shorten the available history. Restarting the gateway loses all history; subsequent uploads, including any unacknowledged device backlog, repopulate it. No database, disk storage, or external service is required.
 
 ## Configuration
 

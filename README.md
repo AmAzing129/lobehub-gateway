@@ -23,10 +23,12 @@ The protocol baseline for this repository is the pair of standalone reference im
 
 For implemented gateway services, the target is compatibility with the public HTTP routes, WebSocket messages, request and response shapes, authentication behavior, routing semantics, and timeout behavior exposed by those reference implementations. This target intentionally keeps the Go runtime self-hosted and single-instance oriented.
 
+Device health sampling (`device_metrics`) and history queries (`POST /api/device/metrics`) are supported with up to 48 hours of bounded in-memory history. Restarting the gateway loses this history.
+
 The alignment target does not include the following capabilities:
 
 - Admin APIs and admin reporting.
-- Metrics, including device health sampling (`device_metrics` and `/api/device/metrics`).
+- Gateway management metrics.
 - Durable Object storage and WebSocket hibernation.
 - Multi-instance coordination.
 - Geo reporting.

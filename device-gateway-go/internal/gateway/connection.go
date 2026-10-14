@@ -12,6 +12,7 @@ type connection struct {
 	authTimeout    time.Duration
 	heartbeatTimer *time.Timer
 	hub            *hub
+	metrics        *metricStore
 	writeMu        sync.Mutex
 	ws             *wsConn
 }
@@ -112,6 +113,8 @@ func (c *connection) readLoop(auth *authResolver, heartbeatTimeout time.Duration
 		}
 
 		switch envelope.Type {
+		case "device_metrics":
+			c.handleDeviceMetrics(payload)
 		case "heartbeat":
 			c.hub.recordHeartbeat(c)
 			c.resetHeartbeatTimer(heartbeatTimeout)

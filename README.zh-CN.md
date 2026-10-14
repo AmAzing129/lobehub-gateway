@@ -23,10 +23,12 @@
 
 对于已经实现的 gateway 服务，对齐目标是兼容这些参考实现暴露的公开 HTTP 路由、WebSocket 消息、请求和响应结构、认证行为、路由语义以及超时行为。同时，Go 版本仍然保持面向自托管的单实例运行时定位。
 
+支持设备健康采样（`device_metrics`）和历史查询（`POST /api/device/metrics`），使用有容量限制的内存存储，最多保留最近 48 小时数据。网关重启后历史数据丢失。
+
 该对齐目标不包含以下能力：
 
 - 管理 API 和管理侧上报。
-- 指标，包括设备健康采样（`device_metrics` 和 `/api/device/metrics`）。
+- 网关管理指标。
 - Durable Object 存储和 WebSocket 休眠。
 - 多实例协调。
 - 地理位置上报。

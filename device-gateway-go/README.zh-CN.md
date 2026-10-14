@@ -22,6 +22,7 @@
 - `POST /api/device/message-api`
 - `POST /api/device/tool-call`
 - `POST /api/device/system-info`
+- `POST /api/device/metrics`
 - `POST /api/device/rpc`
 - `POST /api/device/agent/run`
 
@@ -29,7 +30,17 @@
 
 工具调用在重连重发时保留同一 request ID，并绑定首次选定的设备与连接。首次发送后最多重发三次。等待时间为执行超时（默认 30 秒，最少 5 秒）加 45 秒恢复窗口。始终未成功投递时返回 `503 DEVICE_OFFLINE`；成功投递但未收到结果时返回 `504 TIMEOUT`。
 
-不实现设备隧道（LobeHub 的 alpha 实验功能）和设备健康指标。工具调用恢复的等待时间可以超出通用 HTTP `WRITE_TIMEOUT`，反向代理需允许执行超时加 45 秒恢复窗口。
+不实现设备隧道（LobeHub 的 alpha 实验功能）。工具调用恢复的等待时间可以超出通用 HTTP `WRITE_TIMEOUT`，反向代理需允许执行超时加 45 秒恢复窗口。
+
+## 设备健康指标
+
+已认证的设备发送 `device_metrics` 消息，包含 `batchId` 和 `samples` 数组；网关回复 `{ type: "device_metrics_ack", batchId, accepted }`。样本字段为 `connected`、`cpuCount`、`cpuPercent`、`load1`、`load5`、`load15`、`memoryTotalBytes`、`memoryUsedBytes` 和 `observedAt`（毫秒时间戳），CPU 使用率和负载允许为 `null`。样本归属由已认证 socket 的用户和设备 ID 决定，消息中额外提供的 ID 不会改变归属。
+
+`POST /api/device/metrics` 使用 Service Token 认证，接受 `{ userId, deviceId, since? }`，返回按采样时间升序排列的 `{ samples: [...] }`。`deviceId` 必填，数字 `since` 为包含边界的查询起点，缺省或非数字时按零处理。结果限制为最近 48 小时，设备离线后仍可查询；没有历史时返回 `{ samples: [] }`。
+
+单批仅处理前 500 条，校验样本字段，丢弃早于 48 小时或超前网关时间超过 10 分钟的样本，并按 `observedAt` 去重。同一时间戳的新样本替换旧样本，重复样本仍计入 ack 的接受数量。正常设备每分钟采样、每五分钟上传；LobeHub 设备页面通常查询最近 12 小时，图表聚合由 LobeHub Server 完成。
+
+历史仅保存在内存中，固定上限为每设备 3,000 条、整个网关 300,000 条、所有用户合计 1,000 个设备历史。单设备保留最新样本；触及全局上限时，整体淘汰最新样本时间最早的设备历史。读写时及每分钟定时清理过期样本，断线设备也会清理。容量限制可能缩短可查询的历史范围。网关重启后全部历史丢失，后续上传及设备尚未确认的积压样本会重新填充历史。不需要数据库、磁盘存储或外部服务。
 
 ## 配置
 
