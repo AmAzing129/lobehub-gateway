@@ -297,7 +297,7 @@ func TestInactivityWatchdogReconcilesPhantomTimeout(t *testing.T) {
 
 	op := srv.getOperation("op-watchdog-phantom")
 	op.mu.Lock()
-	op.lastEventAt = time.Now().Add(-11 * time.Minute)
+	op.lastEventAt = time.Now().Add(-31 * time.Minute)
 	op.lastEventTyp = "step_complete"
 	op.mu.Unlock()
 	op.fireWatchdog()
@@ -331,7 +331,7 @@ func TestInactivityWatchdogReportsAbandonedTimeout(t *testing.T) {
 
 	op := srv.getOperation("op-watchdog-abandoned")
 	op.mu.Lock()
-	op.lastEventAt = time.Now().Add(-11 * time.Minute)
+	op.lastEventAt = time.Now().Add(-31 * time.Minute)
 	op.lastEventTyp = "step_complete"
 	op.mu.Unlock()
 	op.fireWatchdog()
@@ -369,7 +369,7 @@ func TestInactivityWatchdogRechecksRecentEventsAfterFinalize(t *testing.T) {
 
 	op := srv.getOperation("op-watchdog-race")
 	op.mu.Lock()
-	op.lastEventAt = time.Now().Add(-11 * time.Minute)
+	op.lastEventAt = time.Now().Add(-31 * time.Minute)
 	op.lastEventTyp = "step_complete"
 	op.mu.Unlock()
 

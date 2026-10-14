@@ -16,7 +16,7 @@ The original Cloudflare Worker Agent Gateway remains the reference implementatio
 ## Deliberate trade-offs
 
 - Single process only. The backend `/api/operations/*` calls and the browser WebSocket for the same `operationId` must reach the same instance.
-- Runtime state lives in memory. Operations, buffered events, pending requests, v2 subscriptions, metrics and errors are lost on restart. V2 clients reconnect and resubscribe, but events buffered only before a process restart cannot be replayed and must be recovered from LobeHub storage.
+- Runtime state lives in memory. Operations, buffered events, pending requests, v2 subscriptions and open LLM attempts are lost on restart. V2 clients reconnect and resubscribe, but events buffered only before a process restart cannot be replayed and must be recovered from LobeHub storage.
 - The admin surface is intentionally not implemented: `/api/admin/*`, `/admin/ws`, `ADMIN_TOKEN`, admin stats / metrics / errors and admin observer WebSockets are all absent.
 - Durable Object storage, alarms and WebSocket hibernation are replaced by in-process maps and timers.
 
@@ -32,6 +32,9 @@ The original Cloudflare Worker Agent Gateway remains the reference implementatio
 - `POST /api/operations/request-confirmation`
 - `POST /api/operations/request-input`
 - `POST /api/operations/tool-execute`
+- `POST /api/operations/llm-execute`
+- `POST /api/operations/llm-cancel`
+- `POST /api/operations/llm-close`
 - `GET /api/operations/status?operationId={operationId}`
 
 All `/api/operations/*` endpoints require `Authorization: Bearer <SERVICE_TOKEN>`. The `/ws` endpoint authenticates via the first WebSocket message, which carries either a JWT signed by the LobeHub Server (verified against `JWKS_PUBLIC_KEY`) or the shared service token.
@@ -44,7 +47,13 @@ Protocol v2 authenticates during the `/v2/ws` upgrade. `token` is required; `tok
 
 The connection multiplexes operations with `subscribe` and `unsubscribe`. Stream messages carry the subscribed `operationId`; replay ends with `resume_complete`, including `gap: true` when the in-memory buffer no longer contains a contiguous history. `executor: true` marks the subscription that should receive `tool_execute` events; if no executor exists, all subscribers receive them for v1 parity. Client `tool_result`, `tool_confirmation`, `user_input`, and `interrupt` messages must target an operation subscribed on the same connection.
 
-`POST /api/operations/init` accepts optional metadata fields `topicId`, `threadId`, `agentId`, `groupId`, `taskId`, `scope`, `parentOperationId`, `mirrorToOperationId`, and `rootOperationId`. V2 connections receive user-level `op_lifecycle` messages containing this metadata and the precise operation status. Unknown metadata fields are ignored.
+`POST /api/operations/init` accepts optional metadata fields `topicId`, `threadId`, `agentId`, `groupId`, `taskId`, `scope`, `parentOperationId`, `mirrorToOperationId`, `rootOperationId`, and `heteroType`. V2 connections receive user-level `op_lifecycle` messages containing this metadata and the precise operation status. Unknown metadata fields are ignored.
+
+`llm-execute` accepts `{ operationId, data: { callId, preferredClientId?, deadlines?: { totalMs? }, ... } }` and forwards opaque attempt data as an `agent_event` of type `llm_execute`. V1 clients identify themselves with `clientId` in their `auth` message; v2 clients use the connection's `clientId` query parameter. Delivery prefers the starter identified by `preferredClientId`. If absent, v2 prefers executor subscriptions, then all subscribers; v1 falls back to all authenticated clients. The response reports `{ success: true, delivered }`; terminal operations return `409 { delivered: 0, error: "OPERATION_ENDED" }`.
+
+`llm-cancel` accepts `{ operationId, data: { callId, ... } }` and broadcasts `llm_cancel` to every client. `llm-close` accepts `{ operationId, callId }` and retires the attempt without broadcasting. Resume replays only open, unexpired attempts, including attempts trimmed out of the event ring, with the same recipient selection as live delivery. The default replay lifetime is 10 minutes, overridden by a positive `data.deadlines.totalMs`. Cancellation, close and terminal operation status stop execution replay; open calls are lost on process restart.
+
+The inactivity watchdog starts at operation initialization. Every backend activity refreshes a fixed 30-minute window, or 60 minutes when `init.meta.heteroType` is nonempty. Event types do not change the window. Abandoned-operation reconciliation uses `LOBE_API_BASE_URL`.
 
 ## Configuration
 

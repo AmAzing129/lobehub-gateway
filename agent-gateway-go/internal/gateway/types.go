@@ -17,6 +17,7 @@ const (
 )
 
 type authMessage struct {
+	ClientID  string `json:"clientId,omitempty"`
 	ServerURL string `json:"serverUrl,omitempty"`
 	Token     string `json:"token"`
 	TokenType string `json:"tokenType,omitempty"`
@@ -24,6 +25,7 @@ type authMessage struct {
 }
 
 type clientAttachment struct {
+	ClientID      string
 	Authenticated bool
 	ConnectedAt   int64
 	IsAdmin       bool
@@ -33,6 +35,7 @@ type clientAttachment struct {
 }
 
 type operationMeta struct {
+	HeteroType          string `json:"heteroType,omitempty"`
 	AgentID             string `json:"agentId,omitempty"`
 	GroupID             string `json:"groupId,omitempty"`
 	MirrorToOperationID string `json:"mirrorToOperationId,omitempty"`
@@ -65,6 +68,7 @@ type bufferedEvent struct {
 }
 
 type operationHTTPBody struct {
+	CallID      string             `json:"callId,omitempty"`
 	Data        json.RawMessage    `json:"data,omitempty"`
 	ErrorType   string             `json:"errorType,omitempty"`
 	Event       *agentStreamEvent  `json:"event,omitempty"`

@@ -103,6 +103,7 @@ func (c *connection) readLoop(auth *authResolver, heartbeatTimeout time.Duration
 			c.hub.markAuthenticated(c)
 			_ = c.writeJSON(map[string]string{"type": "auth_success"})
 			c.startHeartbeatTimer(heartbeatTimeout)
+			c.hub.retryPending(c)
 			continue
 		}
 

@@ -17,7 +17,7 @@ const (
 	defaultHeartbeatTimeout     = 90 * time.Second
 	defaultToolCallTimeout      = 30 * time.Second
 	minToolCallTimeout          = 5 * time.Second
-	toolCallTimeoutPadding      = 15 * time.Second
+	toolCallRecoveryWindow      = 45 * time.Second
 	defaultSystemInfoTimeout    = 10 * time.Second
 	defaultDeviceRPCTimeout     = 10 * time.Second
 	defaultDeviceMessageTimeout = 30 * time.Second
@@ -178,16 +178,9 @@ func (s *Server) handleDevices(w http.ResponseWriter, _ *http.Request, body devi
 
 func (s *Server) handleToolCall(w http.ResponseWriter, _ *http.Request, body deviceHTTPBody) {
 	h := s.hub(body.UserID)
-	if len(h.authenticatedConnections()) == 0 {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"content": "桌面设备不在线", "error": "DEVICE_OFFLINE", "success": false})
-		return
-	}
-	target := h.target(body.DeviceID)
-	if target == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "DEVICE_NOT_FOUND", "success": false})
-		return
-	}
 	timeout := normalizeToolCallTimeout(body.Timeout)
+	// Recovery can outlast the HTTP server's default write timeout.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout + toolCallRecoveryWindow + 5*time.Second))
 	requestID := randomID()
 
 	request := map[string]any{
@@ -200,7 +193,7 @@ func (s *Server) handleToolCall(w http.ResponseWriter, _ *http.Request, body dev
 		request["operationId"] = body.OperationID
 	}
 
-	msg, status := h.dispatch(target, requestID, timeout+toolCallTimeoutPadding, request)
+	msg, status := h.dispatchToolCall(body.DeviceID, requestID, timeout+toolCallRecoveryWindow, request)
 	switch status {
 	case dispatchOK:
 		writeMergedResult(w, http.StatusOK, true, msg.Result)

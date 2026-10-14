@@ -18,12 +18,20 @@ The original gateway implementations remain the protocol reference. This reposit
 
 The protocol baseline for this repository is the pair of standalone reference implementations:
 
-- `device-gateway` at `d9df5542f06df6f5555356efa0735f767f0e5ccf`
-- `agent-gateway` at `aeaf0abc63134974f803eebf4c1851c5e8f7bf37`
+- `device-gateway` at `b0bbeab8fef29f7607f432f0cfa481409410dca8`
+- `agent-gateway` at `2986083b5c2e570ed3df0242c97532e556b62a70`
 
 For implemented gateway services, the target is compatibility with the public HTTP routes, WebSocket messages, request and response shapes, authentication behavior, routing semantics, and timeout behavior exposed by those reference implementations. This target intentionally keeps the Go runtime self-hosted and single-instance oriented.
 
-The alignment target does not include deliberately excluded platform surfaces: admin APIs, metrics, Durable Object storage or WebSocket hibernation, multi-instance coordination, geo reporting, and admin reporting.
+The alignment target does not include the following capabilities:
+
+- Admin APIs and admin reporting.
+- Metrics, including device health sampling (`device_metrics` and `/api/device/metrics`).
+- Durable Object storage and WebSocket hibernation.
+- Multi-instance coordination.
+- Geo reporting.
+- Shared devices in LobeHub Workspace (team workspaces), workspace device pools, and workspace JWT routing. Only personal devices routed by `userId` are supported.
+- Experimental Labs features marked as alpha by upstream.
 
 ## Projects
 

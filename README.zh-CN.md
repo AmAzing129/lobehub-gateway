@@ -18,12 +18,20 @@
 
 本仓库的协议基准是两份独立参考实现：
 
-- `device-gateway`：`d9df5542f06df6f5555356efa0735f767f0e5ccf`
-- `agent-gateway`：`aeaf0abc63134974f803eebf4c1851c5e8f7bf37`
+- `device-gateway`：`b0bbeab8fef29f7607f432f0cfa481409410dca8`
+- `agent-gateway`：`2986083b5c2e570ed3df0242c97532e556b62a70`
 
 对于已经实现的 gateway 服务，对齐目标是兼容这些参考实现暴露的公开 HTTP 路由、WebSocket 消息、请求和响应结构、认证行为、路由语义以及超时行为。同时，Go 版本仍然保持面向自托管的单实例运行时定位。
 
-该对齐目标不包含已明确排除的平台能力：管理 API、指标、Durable Object 存储或 WebSocket 休眠、多实例协调、地理位置上报和管理侧上报。
+该对齐目标不包含以下能力：
+
+- 管理 API 和管理侧上报。
+- 指标，包括设备健康采样（`device_metrics` 和 `/api/device/metrics`）。
+- Durable Object 存储和 WebSocket 休眠。
+- 多实例协调。
+- 地理位置上报。
+- LobeHub Workspace（团队工作区）共享设备、工作区设备池及工作区 JWT 路由。仅支持按 `userId` 路由的个人设备。
+- 被上游标记为 alpha 的实验室功能。
 
 ## 项目
 

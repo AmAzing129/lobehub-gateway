@@ -12,6 +12,7 @@ var errUserIDMismatch = errors.New("userId mismatch")
 type pendingRequest struct {
 	resolve func(rpcEnvelope)
 	timer   *time.Timer
+	retry   func(*connection)
 }
 
 type dispatchStatus int
@@ -24,7 +25,7 @@ const (
 
 type hub struct {
 	connections map[string]*connection
-	pending     map[string]pendingRequest
+	pending     map[string]*pendingRequest
 	mu          sync.RWMutex
 	userID      string
 }
@@ -32,7 +33,7 @@ type hub struct {
 func newHub(userID string) *hub {
 	return &hub{
 		connections: map[string]*connection{},
-		pending:     map[string]pendingRequest{},
+		pending:     map[string]*pendingRequest{},
 		userID:      userID,
 	}
 }
@@ -192,14 +193,19 @@ func channelRank(channel string) int {
 }
 
 func (h *hub) setPending(key string, timeout time.Duration, resolve func(rpcEnvelope), onTimeout func()) {
-	timer := time.AfterFunc(timeout, func() {
+	p := &pendingRequest{resolve: resolve}
+	h.mu.Lock()
+	p.timer = time.AfterFunc(timeout, func() {
 		h.mu.Lock()
+		if h.pending[key] != p {
+			h.mu.Unlock()
+			return
+		}
 		delete(h.pending, key)
 		h.mu.Unlock()
 		onTimeout()
 	})
-	h.mu.Lock()
-	h.pending[key] = pendingRequest{resolve: resolve, timer: timer}
+	h.pending[key] = p
 	h.mu.Unlock()
 }
 
@@ -249,5 +255,81 @@ func (h *hub) dispatch(target *connection, key string, timeout time.Duration, pa
 		return msg, dispatchOK
 	case <-timeoutCh:
 		return rpcEnvelope{}, dispatchTimeout
+	}
+}
+
+// Retry only the selected physical device and installation, using the same request ID.
+func (h *hub) retryPending(conn *connection) {
+	h.mu.RLock()
+	retries := make([]func(*connection), 0)
+	for _, p := range h.pending {
+		if p.retry != nil {
+			retries = append(retries, p.retry)
+		}
+	}
+	h.mu.RUnlock()
+	for _, retry := range retries {
+		retry(conn)
+	}
+}
+
+func (h *hub) dispatchToolCall(deviceID, key string, timeout time.Duration, payload map[string]any) (rpcEnvelope, dispatchStatus) {
+	result := make(chan rpcEnvelope, 1)
+	expired := make(chan struct{}, 1)
+	var mu sync.Mutex
+	var bound *connection
+	attempts := 0
+	delivered := false
+	finished := false
+	defer func() { mu.Lock(); finished = true; mu.Unlock() }()
+	retry := func(trigger *connection) {
+		mu.Lock()
+		defer mu.Unlock()
+		if finished || attempts >= 4 {
+			return
+		}
+		if bound != nil && trigger != nil && (trigger.att.DeviceID != bound.att.DeviceID || trigger.att.ConnectionID != bound.att.ConnectionID) {
+			return
+		}
+		target := h.target(deviceID)
+		if bound != nil {
+			target = nil
+			for _, c := range h.authenticatedConnections() {
+				if c.att.DeviceID == bound.att.DeviceID && c.att.ConnectionID == bound.att.ConnectionID {
+					target = c
+					break
+				}
+			}
+		}
+		if target == nil {
+			return
+		}
+		if bound == nil {
+			bound = target
+		}
+		attempts++
+		if target.writeJSON(payload) == nil {
+			delivered = true
+		}
+	}
+	h.setPending(key, timeout, func(msg rpcEnvelope) { result <- msg }, func() { expired <- struct{}{} })
+	h.mu.Lock()
+	p, ok := h.pending[key]
+	if ok {
+		p.retry = retry
+		h.pending[key] = p
+	}
+	h.mu.Unlock()
+	retry(nil)
+	select {
+	case msg := <-result:
+		return msg, dispatchOK
+	case <-expired:
+		mu.Lock()
+		defer mu.Unlock()
+		if delivered {
+			return rpcEnvelope{}, dispatchTimeout
+		}
+		return rpcEnvelope{}, dispatchOffline
 	}
 }

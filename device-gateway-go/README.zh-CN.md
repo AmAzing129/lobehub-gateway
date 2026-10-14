@@ -25,7 +25,11 @@
 - `POST /api/device/rpc`
 - `POST /api/device/agent/run`
 
-所有 `/api/device/*` 接口都需要 `Authorization: Bearer <SERVICE_TOKEN>`，并且 JSON 请求体中必须包含 `userId`。
+所有 `/api/device/*` 接口都需要 `Authorization: Bearer <SERVICE_TOKEN>`，JSON 请求体必须包含 `userId`。设备 WebSocket 同样需要 `userId`，JWT 认证必须与该用户一致。不支持 Workspace 设备池及工作区 JWT 路由，额外的 `workspaceId` 字段不会改变设备路由。
+
+工具调用在重连重发时保留同一 request ID，并绑定首次选定的设备与连接。首次发送后最多重发三次。等待时间为执行超时（默认 30 秒，最少 5 秒）加 45 秒恢复窗口。始终未成功投递时返回 `503 DEVICE_OFFLINE`；成功投递但未收到结果时返回 `504 TIMEOUT`。
+
+不实现设备隧道（LobeHub 的 alpha 实验功能）和设备健康指标。工具调用恢复的等待时间可以超出通用 HTTP `WRITE_TIMEOUT`，反向代理需允许执行超时加 45 秒恢复窗口。
 
 ## 配置
 

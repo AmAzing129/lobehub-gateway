@@ -574,9 +574,22 @@ func TestV1OwnerIsRecheckedWhenInitRacesAuthentication(t *testing.T) {
 	}
 }
 
-func TestToolExecuteUsesInflightWatchdog(t *testing.T) {
-	if !inflightEventTypes["tool_execute"] {
-		t.Fatal("tool_execute must use the inflight watchdog timeout")
+func TestWatchdogWindowIsFixedPerRun(t *testing.T) {
+	op := newOperation(NewServer(Config{}), "watchdog")
+	for _, typ := range []string{"operation_init", "tool_execute", "step_complete", "status_change", "stream_end"} {
+		op.lastEventTyp = typ
+		if op.watchdogTimeoutLocked() != 30*time.Minute {
+			t.Fatal("expected fixed 30-minute window")
+		}
+	}
+	op.record.Meta = &operationMeta{HeteroType: "codex"}
+	if op.watchdogTimeoutLocked() != 60*time.Minute {
+		t.Fatal("expected 60-minute hetero window")
+	}
+	op.init("watchdog", "user", nil)
+	defer op.watchdog.Stop()
+	if op.lastEventTyp != "operation_init" || op.watchdog == nil {
+		t.Fatal("init must arm watchdog")
 	}
 }
 

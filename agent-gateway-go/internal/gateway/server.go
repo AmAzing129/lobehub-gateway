@@ -13,8 +13,8 @@ const (
 	defaultAuthTimeout      = 10 * time.Second
 	defaultHeartbeatTimeout = 90 * time.Second
 	defaultCleanupDelay     = 10 * time.Minute
-	defaultIdleWatchdog     = 10 * time.Minute
-	defaultInflightWatchdog = 30 * time.Minute
+	defaultIdleWatchdog     = 30 * time.Minute
+	defaultHeteroWatchdog   = 60 * time.Minute
 	defaultConfirmationWait = 60 * time.Second
 	defaultInputWait        = 60 * time.Second
 )
@@ -132,6 +132,18 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 
 	body, ok := readOperationBody(w, r)
 	if !ok {
+		return
+	}
+	if path == "/api/operations/llm-execute" || path == "/api/operations/llm-cancel" || path == "/api/operations/llm-close" {
+		if body.OperationID == "" {
+			message := "Missing operationId or data.callId"
+			if path == "/api/operations/llm-close" {
+				message = "Missing operationId or callId"
+			}
+			writeText(w, 400, message)
+			return
+		}
+		s.handleLLM(w, r, body)
 		return
 	}
 	if body.OperationID == "" {

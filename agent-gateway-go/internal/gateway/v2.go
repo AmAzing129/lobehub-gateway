@@ -20,6 +20,7 @@ type hubSubscription struct {
 }
 
 type hubConnection struct {
+	clientID  string
 	heartbeat *time.Timer
 	mu        sync.Mutex
 	server    *Server
@@ -57,10 +58,11 @@ func (s *Server) handleV2WebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn := &hubConnection{
-		server: s,
-		subs:   map[string]*hubSubscription{},
-		userID: userID,
-		ws:     ws,
+		server:   s,
+		clientID: defaultClientID(query.Get("clientId")),
+		subs:     map[string]*hubSubscription{},
+		userID:   userID,
+		ws:       ws,
 	}
 	s.v2Mu.Lock()
 	s.v2Connections[conn] = struct{}{}
@@ -172,6 +174,17 @@ func (c *hubConnection) completeSubscribe(operationID string) {
 	since := sub.lastSeq
 	c.mu.Unlock()
 	events, gap, replayStatus := op.collectReplay(jsonNumberString(since))
+	filtered := events[:0]
+	for _, payload := range events {
+		if llmPayload(payload).Type == "llm_execute" {
+			chosen := c.server.operationTargets(op, payload, false)
+			if !chosen[c] {
+				continue
+			}
+		}
+		filtered = append(filtered, payload)
+	}
+	events = filtered
 
 	c.mu.Lock()
 	sub = c.subs[operationID]
@@ -255,39 +268,63 @@ func (c *hubConnection) forwardClientMessage(operationID string, payload []byte)
 	}
 }
 
-func (s *Server) deliverOperationEvent(op *operation, payload json.RawMessage, isToolExecute bool) {
-	owner, _, _ := op.hubSnapshot()
-	if owner == "" {
-		return
-	}
+func (s *Server) deliverOperationEvent(op *operation, payload json.RawMessage, isToolExecute bool) int {
 	operationID := op.recordOperationID()
-	connections := s.userHubConnections(owner)
-	hasExecutor := false
-	if isToolExecute {
-		for _, conn := range connections {
-			conn.mu.Lock()
-			hasExecutor = hasExecutor || (conn.subs[operationID] != nil && conn.subs[operationID].executor)
-			conn.mu.Unlock()
-		}
-	}
-	for _, conn := range connections {
+	chosen := s.operationTargets(op, payload, isToolExecute)
+	delivered := 0
+	for conn := range chosen {
 		var writeErr error
 		conn.mu.Lock()
 		sub := conn.subs[operationID]
-		if sub == nil || (isToolExecute && hasExecutor && !sub.executor) {
-			conn.mu.Unlock()
-			continue
-		}
-		if sub.state == "replaying" {
-			sub.queue = append(sub.queue, append(json.RawMessage(nil), payload...))
-		} else if sub.state == "live" {
-			writeErr = conn.deliverLocked(operationID, sub, payload)
+		if sub != nil {
+			delivered++
+			if sub.state == "replaying" {
+				sub.queue = append(sub.queue, append(json.RawMessage(nil), payload...))
+			} else if sub.state == "live" {
+				writeErr = conn.deliverLocked(operationID, sub, payload)
+			}
 		}
 		conn.mu.Unlock()
 		if writeErr != nil {
 			conn.close(wsCloseError, "")
 		}
 	}
+	return delivered
+}
+
+func (s *Server) operationTargets(op *operation, payload json.RawMessage, isToolExecute bool) map[*hubConnection]bool {
+	owner, _, _ := op.hubSnapshot()
+	operationID := op.recordOperationID()
+	all, executors, preferred := map[*hubConnection]bool{}, map[*hubConnection]bool{}, map[*hubConnection]bool{}
+	llm := llmPayload(payload)
+	for _, conn := range s.userHubConnections(owner) {
+		conn.mu.Lock()
+		sub := conn.subs[operationID]
+		if sub != nil && !conn.closed {
+			all[conn] = true
+			if sub.executor {
+				executors[conn] = true
+			}
+			if llm.Data.PreferredClientID != "" && conn.clientID == llm.Data.PreferredClientID {
+				preferred[conn] = true
+			}
+		}
+		conn.mu.Unlock()
+	}
+	if llm.Type == "llm_execute" && len(preferred) > 0 {
+		return preferred
+	}
+	if (llm.Type == "llm_execute" || isToolExecute) && len(executors) > 0 {
+		return executors
+	}
+	return all
+}
+
+func defaultClientID(id string) string {
+	if id != "" {
+		return id
+	}
+	return randomID()
 }
 
 func (s *Server) notifyLifecycle(op *operation, status SessionStatus, summary string) {

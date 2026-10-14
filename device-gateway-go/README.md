@@ -25,7 +25,11 @@ The original Cloudflare Worker Device Gateway remains the reference implementati
 - `POST /api/device/rpc`
 - `POST /api/device/agent/run`
 
-All `/api/device/*` endpoints require `Authorization: Bearer <SERVICE_TOKEN>` and a JSON body containing `userId`.
+All `/api/device/*` endpoints require `Authorization: Bearer <SERVICE_TOKEN>` and a JSON body containing `userId`. Device WebSockets also require `userId`; JWT authentication must match that user. Workspace device pools and workspace JWT routing are not supported. Additional `workspaceId` fields do not change device routing.
+
+Tool calls keep one request ID across reconnects, bind to the initially selected device and connection, and allow at most three retransmissions after the first attempt. A call waits for its execution timeout (default 30 seconds, minimum 5 seconds) plus a 45-second recovery window. If no delivery succeeds it returns `503 DEVICE_OFFLINE`; a delivered call without a result returns `504 TIMEOUT`.
+
+Device tunnels (the LobeHub alpha experiment) and device health metrics are not implemented. Tool-call recovery can exceed the generic HTTP `WRITE_TIMEOUT`; reverse proxies must allow the execution timeout plus the 45-second recovery window.
 
 ## Configuration
 
