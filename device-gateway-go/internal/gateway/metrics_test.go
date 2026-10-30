@@ -44,6 +44,8 @@ func TestMetricSampleValidation(t *testing.T) {
 		{name: "negative load", field: "load1", value: -1},
 		{name: "invalid CPU", field: "cpuPercent", value: 101},
 		{name: "negative timestamp", field: "observedAt", value: -1},
+		{name: "negative disk", field: "diskUsedBytes", value: -1},
+		{name: "wrong disk", field: "diskTotalBytes", value: "1000"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -65,6 +67,30 @@ func TestMetricSampleValidation(t *testing.T) {
 	for _, raw := range []json.RawMessage{metricJSON(1000), json.RawMessage(`{"connected":false,"cpuCount":0,"cpuPercent":null,"load1":null,"load5":null,"load15":null,"memoryTotalBytes":0,"memoryUsedBytes":0,"observedAt":0}`)} {
 		if _, ok := decodeMetricSample(raw); !ok {
 			t.Fatalf("rejected valid sample: %s", raw)
+		}
+	}
+}
+
+func TestMetricDiskReadings(t *testing.T) {
+	s := testMetricStore(t)
+	now := time.Now().Truncate(time.Millisecond)
+	at := func(delta time.Duration) float64 { return float64(now.Add(delta).UnixMilli()) }
+	key := metricKey{"u1", "d1"}
+	withDisk := json.RawMessage(fmt.Sprintf(`{"connected":true,"cpuCount":8,"cpuPercent":25,"diskTotalBytes":1000,"diskUsedBytes":400,"load1":null,"load5":null,"load15":null,"memoryTotalBytes":16000,"memoryUsedBytes":8000,"observedAt":%v}`, at(-2*time.Minute)))
+	unreadDisk := json.RawMessage(fmt.Sprintf(`{"connected":true,"cpuCount":8,"cpuPercent":25,"diskTotalBytes":null,"diskUsedBytes":null,"load1":null,"load5":null,"load15":null,"memoryTotalBytes":16000,"memoryUsedBytes":8000,"observedAt":%v}`, at(-time.Minute)))
+	if accepted := s.store(key, []json.RawMessage{withDisk, unreadDisk, metricJSON(at(0))}, now); accepted != 3 {
+		t.Fatalf("accepted=%d want 3", accepted)
+	}
+	encoded, _ := json.Marshal(s.read(key, 0, now))
+	var results []map[string]any
+	_ = json.Unmarshal(encoded, &results)
+	if results[0]["diskTotalBytes"] != float64(1000) || results[0]["diskUsedBytes"] != float64(400) {
+		t.Fatalf("disk readings not kept: %v", results[0])
+	}
+	// Devices without disk readings must read back without the fields, as they sent them.
+	for _, result := range results[1:] {
+		if _, ok := result["diskTotalBytes"]; ok {
+			t.Fatalf("absent disk reading serialized: %v", result)
 		}
 	}
 }

@@ -20,10 +20,14 @@ const (
 	metricCleanupInterval = time.Minute
 )
 
+// Disk readings are optional: devices that predate them omit both fields, and
+// they read back without them.
 type metricSample struct {
 	Connected        bool     `json:"connected"`
 	CPUCount         float64  `json:"cpuCount"`
 	CPUPercent       *float64 `json:"cpuPercent"`
+	DiskTotalBytes   *float64 `json:"diskTotalBytes,omitempty"`
+	DiskUsedBytes    *float64 `json:"diskUsedBytes,omitempty"`
 	Load1            *float64 `json:"load1"`
 	Load15           *float64 `json:"load15"`
 	Load5            *float64 `json:"load5"`
@@ -73,7 +77,7 @@ func decodeMetricSample(raw json.RawMessage) (metricSample, bool) {
 			return metricSample{}, false
 		}
 	}
-	for _, value := range []*float64{sample.CPUPercent, sample.Load1, sample.Load5, sample.Load15} {
+	for _, value := range []*float64{sample.CPUPercent, sample.DiskTotalBytes, sample.DiskUsedBytes, sample.Load1, sample.Load5, sample.Load15} {
 		if value != nil && !metricNumber(*value) {
 			return metricSample{}, false
 		}
